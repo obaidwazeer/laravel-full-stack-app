@@ -1,4 +1,13 @@
 # --------------------------------------------------
+#  AWS key pair for EC2 instances
+# --------------------------------------------------
+
+resource "aws_key_pair" "deployer" {
+    key_name = var.key_name
+    public_key = var.ssh_public_key
+}
+
+# --------------------------------------------------
 # 1. Reusable Network Module
 # --------------------------------------------------
 
@@ -78,7 +87,6 @@ resource "aws_security_group" "web_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    # cidr_blocks = [var.admin_cidr]
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -137,6 +145,7 @@ resource "aws_instance" "web" {
   instance_type               = var.web_instance_type
   subnet_id                   = module.network.public_subnet_id
   vpc_security_group_ids      = [aws_security_group.web_sg.id]
+  key_name = aws_key_pair.deployer.key_name
   associate_public_ip_address = true
 
   tags = {
@@ -154,6 +163,7 @@ resource "aws_instance" "db" {
   instance_type          = var.db_instance_type
   subnet_id              = module.network.private_subnet_id
   vpc_security_group_ids = [aws_security_group.db_sg.id]
+  key_name = aws_key_pair.deployer.key_name
 
   # Install MySQL and permit remote connections.
   # Network access is still restricted by db_sg.

@@ -37,5 +37,5 @@ jobs:
     - name: new changes
       run: echo "new changes"
 
-    - name: aws identity profile
+    - name: aws identity
       run: aws sts get-caller-identity

@@ -18,8 +18,8 @@ permission:
 
 jobs:
   deploy-infra:
-  runs-on: ubuntu-latest
-  steps:
+    runs-on: ubuntu-latest
+    steps:
     - name: checkout Repository
       uses: actions/checkout@v4
 

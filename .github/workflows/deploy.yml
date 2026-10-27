@@ -36,3 +36,6 @@ jobs:
     - name: Test the flow
       run: echo "working correctly"
 
+    - name: new changes
+      run: echo "new changes"
+

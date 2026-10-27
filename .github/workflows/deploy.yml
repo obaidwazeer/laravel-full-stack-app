@@ -33,7 +33,11 @@ jobs:
 
     - name: initialize Terraform
       id: init
-      run: terraform init
+      run: |
+       terraform init \
+        -backend-config="bucket_name=${{ secrets.BUCKET_NAME }}" \
+        -backend-config="bucket_key=terraform.tfstate" \
+        -backend-config="region={{ env.AWS_REGION }}"
       working-directory: ./terraform
 
     - name: plan terraform
@@ -41,7 +45,5 @@ jobs:
       run: |
         terraform plan \
         -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
-        -var="bucket_name=${{ secrets.BUCKET_NAME }}" \
-        -var="bucket_key=terraform.tfstate" \
         -out=PLAN
       working-directory: ./terraform

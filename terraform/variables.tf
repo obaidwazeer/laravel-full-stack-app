@@ -27,12 +27,12 @@ variable "ssh_public_key" {
 
 }
 
-variable "bucket_name" {
-    description = "Bucket name for Terraform state file"
-    type = string
-}
+# variable "bucket_name" {
+#     description = "Bucket name for Terraform state file"
+#     type = string
+# }
 
-variable "bucket_key" {
-    description = "Terraform state file along with full directory"
-    type = string
-}
+# variable "bucket_key" {
+#     description = "Terraform state file along with full directory"
+#     type = string
+# }

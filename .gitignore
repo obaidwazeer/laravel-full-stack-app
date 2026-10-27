@@ -13,3 +13,39 @@ npm-debug.log
 yarn-error.log
 /.idea
 /.vscode
+
+# Terraform generated files and local state
+/terraform/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfstate.backup
+
+# Local Terraform variable files
+/terraform/terraform.tfvars
+/terraform/terraform.tfvars.json
+/terraform/*.auto.tfvars
+/terraform/*.auto.tfvars.json
+
+# Saved Terraform plans and crash logs
+/terraform/*.tfplan
+/terraform/tfplan
+/terraform/plan.out
+/terraform/crash.log
+/terraform/crash.*.log
+
+# Terraform local CLI configuration
+/terraform/.terraformrc
+/terraform/terraform.rc
+
+# Terraform override files
+/terraform/override.tf
+/terraform/override.tf.json
+/terraform/*_override.tf
+/terraform/*_override.tf.json
+terraform/.terraform.lock.hcl
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx

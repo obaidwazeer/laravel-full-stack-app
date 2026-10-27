@@ -31,11 +31,17 @@ jobs:
         aws-region: ${{ env.AWS_REGION}}
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-    - name: Test the flow
-      run: echo "working correctly"
+    - name: initialize Terraform
+      id: init
+      run: terraform init
+      working-directory: ./terraform
 
-    - name: new changes
-      run: echo "new changes"
-
-    - name: aws identity
-      run: aws sts get-caller-identity
+    - name: plan terraform
+      id: plan
+      run: |
+        terraform plan \
+        -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
+        -var="bucket_name=${{ secrets.BUCKET_NAME }}" \
+        -var="bucket_key=terraform.tfstate" \
+        -out=PLAN
+      working-directory: ./terraform

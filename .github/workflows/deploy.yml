@@ -1,0 +1,38 @@
+name: Deploy full stack Laravel App with Terraform
+on:
+  push:
+    branches:
+      - master
+
+ENV:
+  OIDC: ${secrets.OICD}
+  OICD_AUDIENCE: ${secrets.OICD_AUDIENCE}
+  BUCKET_NAME: ${secrets.BUCKET_NAME}
+  TERRAFORM_STATE_FILE: ${var.TERRAFORM_STATE_FILE}
+  AWS_REGION: "eu-north-1"
+
+
+permission:
+  content: read
+  token-id: on
+
+jobs:
+  deploy-infra:
+  runs-on: ubuntu-latest
+  steps:
+    - name: checkout Repository
+      uses: actions/checkout@v4
+
+    - name: setup Terraform
+      uses: hashicorp/setup-terraform@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v6.3.0
+      with:
+        audience: ${OICD_AUDIENCE}
+        aws-region: ${AWS_REGION}
+        role-to-assume: ${OICD}
+
+    - name: Test the flow
+      run: echo "working correctly"
+

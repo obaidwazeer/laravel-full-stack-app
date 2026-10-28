@@ -17,16 +17,22 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.0'
-          extensions: imagick, redis, mbstring, intl, openssl, php-bcmath, php-curl, php-json, php-mbstring, php-mysql, php-tokenizer, php-xml, php-zip
+          extensions: php-cli, unzip, curl, imagick, redis, mbstring, intl, openssl, php-bcmath, php-curl, php-json, php-mbstring, php-mysql, php-tokenizer, php-xml, php-zip
 
       - name: install composer
-        run: sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+        run: |
+          php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
+          php -r "if (hash_file('sha384', 'composer-setup.php') === 'c8b085408188070d5f52bcfe4ecfbee5f727afa458b2573b8eaaf77b3419b0bf2768dc67c86944da1544f06fa544fd47') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;" \
+          sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
+          rm composer-setup.php \
+          composer --version
+
 
       - name: check php version
-        run: php -version
+        run: php -v
 
       - name: check composer version
-        run: composer -v
+        run: composer --version
 
 
 

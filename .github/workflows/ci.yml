@@ -6,7 +6,7 @@ on:
       - master
   workflow_dispatch:
 
-job:
+jobs:
   test:
     runs-on: ubuntu-latest
     steps:
@@ -23,4 +23,4 @@ job:
         run: sudo apt update && sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer
 
 
-        
+

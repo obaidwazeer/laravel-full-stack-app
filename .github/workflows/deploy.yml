@@ -8,7 +8,6 @@ on:
 env:
   AWS_REGION: "eu-north-1"
 
-
 permissions:
   contents: read
   id-token: write
@@ -17,50 +16,49 @@ jobs:
   terraform-plan:
     runs-on: ubuntu-latest
     steps:
-    - name: checkout Repository
-      uses: actions/checkout@v4
+      - name: checkout Repository
+        uses: actions/checkout@v4
 
-    - name: setup Terraform
-      uses: hashicorp/setup-terraform@v4
-      with:
-        terraform_wrapper: false
+      - name: setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v6.3.0
-      with:
-        audience: sts.amazonaws.com
-        aws-region: ${{ env.AWS_REGION}}
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          audience: sts.amazonaws.com
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-    - name: initialize Terraform
-      id: init
-      run: |
-       terraform init \
-        -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
-        -backend-config="key=terraform.tfstate" \
-        -backend-config="region=${{ env.AWS_REGION }}"
-      working-directory: ./terraform
+      - name: initialize Terraform
+        id: init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+        working-directory: ./terraform
 
-    - name: plan terraform
-      id: plan
-      run: |
-        terraform plan \
-        -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
-        -out=PLAN
-      working-directory: ./terraform
+      - name: plan terraform
+        id: plan
+        run: |
+          terraform plan \
+            -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
+            -out=PLAN
+        working-directory: ./terraform
 
-    - name: upload terraform plan
-      uses: actions/upload-artifact@v4
-      with:
-        name: terraform-plan
-        path: ./terraform/PLAN
-        retention-days: 1
-        if-no-files-found: error
+      - name: upload terraform plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ./terraform/PLAN
+          retention-days: 1
+          if-no-files-found: error
 
   terraform-apply:
     needs: terraform-plan
-    if: github.event_name == "push" && github.ref == "refs/heads/master"
-
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - name: checkout Repository
@@ -75,7 +73,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           audience: sts.amazonaws.com
-          aws-region: ${{ env.AWS_REGION}}
+          aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
       - name: initialize Terraform

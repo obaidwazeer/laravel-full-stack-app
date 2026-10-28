@@ -1,6 +1,5 @@
 name: Deploy full stack Laravel App with Terraform
 on:
-  workflow_dispatch:
   push:
     branches:
       - master

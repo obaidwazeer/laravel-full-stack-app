@@ -21,18 +21,32 @@ jobs:
 
       - name: install composer
         run: |
-          php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" \
-          php -r "if (hash_file('sha384', 'composer-setup.php') === 'c8b085408188070d5f52bcfe4ecfbee5f727afa458b2573b8eaaf77b3419b0bf2768dc67c86944da1544f06fa544fd47') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;" \
-          sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer \
-          rm composer-setup.php \
+          php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" &&
+          php -r "if (hash_file('sha384', 'composer-setup.php') === 'c8b085408188070d5f52bcfe4ecfbee5f727afa458b2573b8eaaf77b3419b0bf2768dc67c86944da1544f06fa544fd47') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;" &&
+          sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer &&
+          rm composer-setup.php &&
           composer --version
 
+      - name: install mysql
+        run: |
+          sudo apt update &&
+          sudo apt install mysql-server
 
-      - name: check php version
-        run: php -v
 
-      - name: check composer version
-        run: composer --version
+      - name: create .env file
+        run: cp .env.example .env
+
+      - name: install composer
+        run: |
+          composer update &&
+          composer install
+
+      - name: generate app key
+        run: php artisan key:generate
+
+      - name: run migration
+        run: php artisan migrate --force
+
 
 
 

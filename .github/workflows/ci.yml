@@ -1,0 +1,26 @@
+name: CI workflow for Laravel
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+job:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0'
+          extensions: imagick, redis, mbstring, intl, openssl, php-bcmath, php-curl, php-json, php-mbstring, php-mysql, php-tokenizer, php-xml, php-zip
+
+      - name: install composer
+        run: sudo apt update && sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+
+
+        

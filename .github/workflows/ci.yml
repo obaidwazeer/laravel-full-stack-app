@@ -20,7 +20,13 @@ jobs:
           extensions: imagick, redis, mbstring, intl, openssl, php-bcmath, php-curl, php-json, php-mbstring, php-mysql, php-tokenizer, php-xml, php-zip
 
       - name: install composer
-        run: sudo apt update && sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+        run: sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+
+      - name: check php version
+        run: php -version
+
+      - name: check composer version
+        run: composer -v
 
 
 

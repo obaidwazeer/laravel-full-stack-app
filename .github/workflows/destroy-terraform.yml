@@ -1,0 +1,98 @@
+name: Terraform destroy
+on:
+  workflow_dispatch:
+    inputs:
+      confirm-destroy:
+        description: "Are you sure you want to destroy the Terraform-managed infrastructure?"
+        required: true
+        type: choice
+        options:
+          - "yes"
+          - "no"
+        default: "no"
+
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: "eu-north-1"
+
+jobs:
+  prepare-destroy-plan:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout Repository
+      uses: actions/checkout@v4
+
+    - name: setup Terraform
+      uses: hashicorp/setup-terraform@v4
+      with:
+        terraform_wrapper: false
+
+    - name: configure AWS
+      uses: aws-actions/configure-aws-credentials@v6.3.0
+      with:
+        audience: sts.amazonaws.com
+        aws-region: ${{ env.AWS_REGION}}
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+    - name: initialize Terraform
+      run: |
+        terraform init \
+        -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
+        -backend-config="key=terraform.tfstate" \
+        -backend-config="region=${{ env.AWS_REGION }}"
+      working-directory: ./terraform
+
+    - name: prepare Terraform destroy plan
+      run: |
+        terraform plan \
+        -destroy \
+        -out=destroy.tfplan
+      working-directory: ./terraform
+
+    - name: upload destroy plan artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: aws-terraform-destroy
+        path: terraform/destroy.tfplan
+        retention-days: 1
+        if-no-files-found: error
+      working-directory: ./terraform
+
+  destroy-plan:
+    needs: prepare-destroy-plan
+    if: ${{ inputs.confirm-destroy == "yes" }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout Repository
+        uses: actions/checkout@v4
+
+      - name: setup terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: configure AWS
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          audience: sts.amazonaws.com
+          aws-region: ${{ env.AWS_REGION}}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      - name: download plan
+        uses: actions/download-artifact@v4
+        with:
+          name: aws-terraform-destroy
+          path: ./terraform
+
+      - name: apply Terraform destroy
+        run: |
+          terraform apply destroy.tfplan
+        working-directory: ./terraform
+
+
+

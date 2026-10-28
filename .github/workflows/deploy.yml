@@ -1,5 +1,6 @@
 name: Deploy full stack Laravel App with Terraform
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -13,7 +14,7 @@ permissions:
   id-token: write
 
 jobs:
-  deploy-infra:
+  terraform-plan:
     runs-on: ubuntu-latest
     steps:
     - name: checkout Repository
@@ -47,3 +48,50 @@ jobs:
         -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
         -out=PLAN
       working-directory: ./terraform
+
+    - name: upload terraform plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan
+        path: ./terrafrom/PLAN
+        retention-days: 1
+        if-no-files-found: error
+
+  terraform-apply:
+    needs: terraform-plan
+    if: github.event_name == "push" && github.ref == "refs/head/master"
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout Repository
+        uses: actions\checkout@v4
+
+      - name: Terraform setup
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+
+      - name: configure AWS
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          audience: sts.amazonaws.com
+          aws-region: ${{ env.AWS_REGION}}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+
+      - name: initialize Terraform
+        id: init
+        run: |
+        terraform init \
+          -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
+          -backend-config="key=terraform.tfstate" \
+          -backend-config="region=${{ env.AWS_REGION }}"
+        working-directory: ./terraform
+
+      - name: download terrarom plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: ./terraform
+
+      - name: apply terraform plan
+        run: terraform apply PLAN

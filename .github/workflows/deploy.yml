@@ -1,9 +1,10 @@
 name: Deploy full stack Laravel App with Terraform
 
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
+  # push:
+  #   branches:
+  #     - master
 
 env:
   AWS_REGION: "eu-north-1"

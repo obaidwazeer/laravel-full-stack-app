@@ -1,103 +1,4 @@
-# name: Deploy full stack Laravel App with Terraform
-
-# on:
-#   push:
-#     branches:
-#       - master
-
-# env:
-#   AWS_REGION: "eu-north-1"
-
-
-# permissions:
-#   contents: read
-#   id-token: write
-
-# jobs:
-#   terraform-plan:
-#     runs-on: ubuntu-latest
-#     steps:
-#     - name: checkout Repository
-#       uses: actions/checkout@v4
-
-#     - name: setup Terraform
-#       uses: hashicorp/setup-terraform@v4
-#       with:
-#         terraform_wrapper: false
-
-#     - name: Configure AWS Credentials
-#       uses: aws-actions/configure-aws-credentials@v6.3.0
-#       with:
-#         audience: sts.amazonaws.com
-#         aws-region: ${{ env.AWS_REGION}}
-#         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-
-#     - name: initialize Terraform
-#       id: init
-#       run: |
-#        terraform init \
-#         -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
-#         -backend-config="key=terraform.tfstate" \
-#         -backend-config="region=${{ env.AWS_REGION }}"
-#       working-directory: ./terraform
-
-#     - name: plan terraform
-#       id: plan
-#       run: |
-#         terraform plan \
-#         -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
-#         -out=PLAN
-#       working-directory: ./terraform
-
-#     - name: upload terraform plan
-#       uses: actions/upload-artifact@v4
-#       with:
-#         name: terraform-plan
-#         path: ./terraform/PLAN
-#         retention-days: 1
-#         if-no-files-found: error
-
-#   terraform-apply:
-#     needs: terraform-plan
-#     if: github.event_name == "push" && github.ref == "refs/heads/master"
-
-#     runs-on: ubuntu-latest
-#     steps:
-#       - name: checkout Repository
-#         uses: actions/checkout@v4
-
-#       - name: Terraform setup
-#         uses: hashicorp/setup-terraform@v4
-#         with:
-#           terraform_wrapper: false
-
-#       - name: configure AWS
-#         uses: aws-actions/configure-aws-credentials@v6.3.0
-#         with:
-#           audience: sts.amazonaws.com
-#           aws-region: ${{ env.AWS_REGION}}
-#           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-
-#       - name: initialize Terraform
-#         id: init
-#         run: |
-#         terraform init \
-#           -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
-#           -backend-config="key=terraform.tfstate" \
-#           -backend-config="region=${{ env.AWS_REGION }}"
-#         working-directory: ./terraform
-
-#       - name: download terrarom plan
-#         uses: actions/download-artifact@v4
-#         with:
-#           name: terraform-plan
-#           path: ./terraform
-
-#       - name: apply terraform plan
-#         run: terraform apply PLAN
-#         working-directory: ./terraform
-
-name: Deploy Full Stack Laravel App with Terraform
+name: Deploy full stack Laravel App with Terraform
 
 on:
   push:
@@ -105,134 +6,93 @@ on:
       - master
 
 env:
-  AWS_REGION: eu-north-1
+  AWS_REGION: "eu-north-1"
+
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   terraform-plan:
-    name: Terraform Plan
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      id-token: write
-
-    outputs:
-      commit_sha: ${{ steps.commit.outputs.commit_sha }}
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Record Commit SHA
-        id: commit
-        run: |
-          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+    - name: setup Terraform
+      uses: hashicorp/setup-terraform@v4
+      with:
+        terraform_wrapper: false
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_wrapper: false
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v6.3.0
+      with:
+        audience: sts.amazonaws.com
+        aws-region: ${{ env.AWS_REGION}}
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          audience: sts.amazonaws.com
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+    - name: initialize Terraform
+      id: init
+      run: |
+       terraform init \
+        -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
+        -backend-config="key=terraform.tfstate" \
+        -backend-config="region=${{ env.AWS_REGION }}"
+      working-directory: ./terraform
 
-      - name: Initialize Terraform
-        working-directory: ./terraform
-        run: |
-          terraform init \
-            -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
-            -backend-config="key=terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}"
+    - name: plan terraform
+      id: plan
+      run: |
+        terraform plan \
+        -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
+        -out=PLAN
+      working-directory: ./terraform
 
-      - name: Validate Terraform
-        working-directory: ./terraform
-        run: terraform validate
-
-      - name: Plan Terraform
-        working-directory: ./terraform
-        run: |
-          terraform plan \
-            -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
-            -out=PLAN
-
-      - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ./terraform/PLAN
-          retention-days: 1
-          if-no-files-found: error
+    - name: upload terraform plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan
+        path: ./terraform/PLAN
+        retention-days: 1
+        if-no-files-found: error
 
   terraform-apply:
-    name: Terraform Apply
     needs: terraform-plan
+    if: github.event_name == "push" && github.ref == "refs/heads/master"
+
     runs-on: ubuntu-latest
-
-    # Only apply a plan from the master branch.
-    if: >-
-      ${{
-        github.event_name == 'push' &&
-        github.ref == 'refs/heads/master'
-      }}
-
-    environment:
-      name: terraform apply
-
-    permissions:
-      contents: read
-      id-token: write
-
     steps:
-      - name: Checkout Repository
+      - name: checkout Repository
         uses: actions/checkout@v4
 
-      - name: Verify Commit
-        env:
-          PLANNED_COMMIT: ${{ needs.terraform-plan.outputs.commit_sha }}
-        run: |
-          CURRENT_COMMIT="$(git rev-parse HEAD)"
-
-          echo "Planned commit: $PLANNED_COMMIT"
-          echo "Apply commit:   $CURRENT_COMMIT"
-
-          if [ "$PLANNED_COMMIT" != "$CURRENT_COMMIT" ]; then
-            echo "ERROR: Plan and apply commits do not match."
-            exit 1
-          fi
-
-      - name: Setup Terraform
+      - name: Terraform setup
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_wrapper: false
 
-      - name: Configure AWS Credentials
+      - name: configure AWS
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           audience: sts.amazonaws.com
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION}}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-      - name: Initialize Terraform
-        working-directory: ./terraform
+      - name: initialize Terraform
+        id: init
         run: |
           terraform init \
             -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
             -backend-config="key=terraform.tfstate" \
             -backend-config="region=${{ env.AWS_REGION }}"
+        working-directory: ./terraform
 
-      - name: Download Terraform Plan
+      - name: download terrarom plan
         uses: actions/download-artifact@v4
         with:
           name: terraform-plan
           path: ./terraform
 
-      - name: Apply Terraform Plan
+      - name: apply terraform plan
+        run: terraform apply PLAN
         working-directory: ./terraform
-        run: terraform apply -input=false PLAN

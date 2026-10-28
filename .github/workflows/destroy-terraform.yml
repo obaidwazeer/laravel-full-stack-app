@@ -1,4 +1,5 @@
 name: Terraform destroy
+
 on:
   workflow_dispatch:
     inputs:
@@ -11,7 +12,6 @@ on:
           - "no"
         default: "no"
 
-
 permissions:
   contents: read
   id-token: write
@@ -23,49 +23,47 @@ jobs:
   prepare-destroy-plan:
     runs-on: ubuntu-latest
     steps:
-    - name: checkout Repository
-      uses: actions/checkout@v4
+      - name: checkout Repository
+        uses: actions/checkout@v4
 
-    - name: setup Terraform
-      uses: hashicorp/setup-terraform@v4
-      with:
-        terraform_wrapper: false
+      - name: setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
 
-    - name: configure AWS
-      uses: aws-actions/configure-aws-credentials@v6.3.0
-      with:
-        audience: sts.amazonaws.com
-        aws-region: ${{ env.AWS_REGION}}
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+      - name: configure AWS
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          audience: sts.amazonaws.com
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
-    - name: initialize Terraform
-      run: |
-        terraform init \
-        -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
-        -backend-config="key=terraform.tfstate" \
-        -backend-config="region=${{ env.AWS_REGION }}"
-      working-directory: ./terraform
+      - name: initialize Terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+        working-directory: ./terraform
 
-    - name: prepare Terraform destroy plan
-      run: |
-        terraform plan \
-        -destroy \
-        -out=destroy.tfplan
-      working-directory: ./terraform
+      - name: prepare Terraform destroy plan
+        run: |
+          terraform plan \
+            -destroy \
+            -out=destroy.tfplan
+        working-directory: ./terraform
 
-    - name: upload destroy plan artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: aws-terraform-destroy
-        path: terraform/destroy.tfplan
-        retention-days: 1
-        if-no-files-found: error
-      working-directory: ./terraform
+      - name: upload destroy plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-terraform-destroy
+          path: ./terraform/destroy.tfplan
+          retention-days: 1
+          if-no-files-found: error
 
   destroy-plan:
     needs: prepare-destroy-plan
-    if: ${{ inputs.confirm-destroy == "yes" }}
-
+    if: ${{ inputs.confirm-destroy == 'yes' }}
     runs-on: ubuntu-latest
     steps:
       - name: checkout Repository
@@ -80,7 +78,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           audience: sts.amazonaws.com
-          aws-region: ${{ env.AWS_REGION}}
+          aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
 
       - name: download plan
@@ -91,8 +89,9 @@ jobs:
 
       - name: apply Terraform destroy
         run: |
-          terraform apply destroy.tfplan
+          terraform init \
+            -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+          terraform apply -input=false destroy.tfplan
         working-directory: ./terraform
-
-
-

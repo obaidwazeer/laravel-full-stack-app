@@ -30,19 +30,21 @@ jobs:
       - name: install mysql
         run: |
           sudo apt update &&
-          sudo apt install mysql-server
+          sudo apt install mysql-server &&
+          sudo systemctl start mysql
 
 
       - name: create .env file
         run: cp .env.example .env
 
       - name: install composer
-        run: |
-          composer update &&
-          composer install
+        run: composer install
 
       - name: generate app key
         run: php artisan key:generate
+
+      - name: clear cache
+        run: php artisan config:cache && php artisan cache:clear && php artisan optimize:clear
 
       - name: run migration
         run: php artisan migrate --force

@@ -1,4 +1,5 @@
 name: Deploy full stack Laravel App with Terraform
+
 on:
   push:
     branches:
@@ -52,18 +53,18 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: terraform-plan
-        path: ./terrafrom/PLAN
+        path: ./terraform/PLAN
         retention-days: 1
         if-no-files-found: error
 
   terraform-apply:
     needs: terraform-plan
-    if: github.event_name == "push" && github.ref == "refs/head/master"
+    if: github.event_name == "push" && github.ref == "refs/heads/master"
 
     runs-on: ubuntu-latest
     steps:
       - name: checkout Repository
-        uses: actions\checkout@v4
+        uses: actions/checkout@v4
 
       - name: Terraform setup
         uses: hashicorp/setup-terraform@v4
@@ -94,3 +95,4 @@ jobs:
 
       - name: apply terraform plan
         run: terraform apply PLAN
+        working-directory: ./terraform

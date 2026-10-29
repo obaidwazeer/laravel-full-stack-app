@@ -1,10 +1,10 @@
-name: Deploy full stack Laravel App with Terraform
+name: Deploy Infra
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - master
+  push:
+    branches:
+      - master
 
 env:
   AWS_REGION: "eu-north-1"

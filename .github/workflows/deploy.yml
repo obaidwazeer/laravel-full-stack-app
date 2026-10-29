@@ -1,15 +1,13 @@
 name: Deploy Laravel application
 
-# on:
-#   workflow_run:
-#     workflows:
-#       - "CI workflow for Laravel"
-#     types:
-#       - completed
-#     branches:
-#       - master
 on:
-  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - "CI workflow for Laravel"
+    types:
+      - completed
+    branches:
+      - master
 
 permissions:
   contents: read

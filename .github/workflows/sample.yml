@@ -9,3 +9,15 @@ jobs:
     steps:
       - name: Inspect Available Environment Variables
         run: env | sort
+
+      - name: check php version
+        run: php -v
+
+      - name: mysql version
+        run: mysql -v
+
+      - name: composer version
+        run: composer -v
+
+      - name: mysql status
+        run: sudo systemctl status mysql

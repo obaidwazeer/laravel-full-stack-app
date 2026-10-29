@@ -99,7 +99,7 @@ jobs:
       - name: terraform output
         id: ips
         run: |
-          mkdir -p output_data 
+          mkdir -p output_data
           echo WEB_PUBLIC_IP="$(terraform output -raw web_public_ip )" >> output_data/ips.txt
           echo WEB_PRIVATE_IP="$(terraform output -raw web_private_ip)" >> output_data/ips.txt
           echo DATABASE_PRIVATE_IP="$(terraform output -raw database_private_ip)" >> output_data/ips.txt
@@ -110,3 +110,5 @@ jobs:
         with:
           name: output-ips
           path: output_data/ips.txt
+          retention-days: 1
+          if-no-files-found: error

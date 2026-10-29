@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: laravel-ci-${{ github.ref }}
@@ -121,4 +122,21 @@ jobs:
           name: laravel-release
           path: ${{ runner.temp }}/release.tar.gz
           retention-days: 3
+          if-no-files-found: error
+
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: output-ips
+          path: ./output_data
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Forward Terraform outputs to deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-ips
+          path: ./output_data/ips.txt
+          retention-days: 1
           if-no-files-found: error

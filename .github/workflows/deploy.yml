@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: laravel-production
@@ -51,11 +52,18 @@ jobs:
       APP_HEALTH_URL: ${{ vars.APP_HEALTH_URL }}
 
     steps:
-      - name: Download terraform outputs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: output-ips
+          path: ./output_data
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Display downloaded IP information
         run: |
-          gh run download --name output-ips --dir ./output_data
+          cat ./output_data/ips.txt
 
 
       - name: Load ips into GitHub environment variables

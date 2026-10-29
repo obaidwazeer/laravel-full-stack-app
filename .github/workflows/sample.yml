@@ -1,0 +1,11 @@
+name: sample 
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect Available Environment Variables
+        run: env | sort

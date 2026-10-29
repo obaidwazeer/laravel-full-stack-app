@@ -112,3 +112,7 @@ jobs:
           path: output_data/ips.txt
           retention-days: 1
           if-no-files-found: error
+
+      - name: View All Terraform Outputs
+        run: terraform output
+

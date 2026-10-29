@@ -98,6 +98,7 @@ jobs:
 
       - name: terraform output
         id: ips
+        working-directory: ./terraform
         run: |
           mkdir -p output_data
           echo WEB_PUBLIC_IP="$(terraform output -raw web_public_ip )" >> output_data/ips.txt
@@ -109,7 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: output-ips
-          path: output_data/ips.txt
+          path: ./terraform/output_data/ips.txt
           retention-days: 1
           if-no-files-found: error
 

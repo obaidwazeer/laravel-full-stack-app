@@ -14,7 +14,7 @@ jobs:
         run: php -v
 
       - name: mysql version
-        run: mysql -v
+        run: mysql --version
 
       - name: composer version
         run: composer -v

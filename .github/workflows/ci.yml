@@ -89,7 +89,7 @@ jobs:
           EOF
 
       - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
+        run: composer update && composer install --no-interaction --prefer-dist --no-progress
 
       - name: Generate application key
         run: php artisan key:generate --force

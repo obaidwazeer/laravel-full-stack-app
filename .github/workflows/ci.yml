@@ -1,9 +1,9 @@
 name: CI workflow for Laravel
 
 on:
-  push:
-    branches:
-      - master
+  # push:
+  #   branches:
+  #     - master
 
   pull_request:
     branches:

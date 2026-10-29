@@ -1,97 +1,226 @@
-name: Deploy full stack Laravel App with Terraform
+name: Deploy Laravel application
 
+# on:
+#   workflow_run:
+#     workflows:
+#       - "CI workflow for Laravel"
+#     types:
+#       - completed
+#     branches:
+#       - master
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - master
-
-env:
-  AWS_REGION: "eu-north-1"
 
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: laravel-production
+  cancel-in-progress: false
 
 jobs:
-  terraform-plan:
-    runs-on: ubuntu-latest
+  deploy:
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'master' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      }}
+
+    runs-on: ubuntu-24.04
+
+    environment:
+      name: production
+
+    permissions:
+      actions: read
+      contents: read
+
+    env:
+      EC2_HOST: ${{ vars.EC2_HOST }}
+      EC2_USER: "ubuntu"
+      APP_DIR: /var/www/laravel
+      AWS_REGION: eu-north-1
+      MIGRATION_SECRET_ID: prod/laravel/migration-db
+      COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+      APP_HEALTH_URL: ${{ vars.APP_HEALTH_URL }}
+
     steps:
-      - name: checkout Repository
-        uses: actions/checkout@v4
-
-      - name: setup Terraform
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_wrapper: false
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          audience: sts.amazonaws.com
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-
-      - name: initialize Terraform
-        id: init
-        run: |
-          terraform init \
-            -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
-            -backend-config="key=terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}"
-        working-directory: ./terraform
-
-      - name: plan terraform
-        id: plan
-        run: |
-          terraform plan \
-            -var="ssh_public_key=${{ secrets.KEY_PAIR_PUB }}" \
-            -out=PLAN
-        working-directory: ./terraform
-
-      - name: upload terraform plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: ./terraform/PLAN
-          retention-days: 1
-          if-no-files-found: error
-
-  terraform-apply:
-    needs: terraform-plan
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    steps:
-      - name: checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Terraform setup
-        uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_wrapper: false
-
-      - name: configure AWS
-        uses: aws-actions/configure-aws-credentials@v6.3.0
-        with:
-          audience: sts.amazonaws.com
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-
-      - name: initialize Terraform
-        id: init
-        run: |
-          terraform init \
-            -backend-config="bucket=${{ secrets.BUCKET_NAME }}" \
-            -backend-config="key=terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}"
-        working-directory: ./terraform
-
-      - name: download terrarom plan
+      - name: Download terraform outputs
         uses: actions/download-artifact@v4
         with:
-          name: terraform-plan
-          path: ./terraform
+          name: output-ips
+          path: ./output_data
 
-      - name: apply terraform plan
-        run: terraform apply PLAN
-        working-directory: ./terraform
+      - name: Load ips into GitHub environment variables
+        run: cat ./output_data/ips.txt >> $GITHUB_ENV
+
+      - name: Download artifact from successful CI run
+        uses: actions/download-artifact@v4
+        with:
+          name: laravel-release
+          path: ./release
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: show all env variables
+        run: env | sort
+
+      # - name: Validate deployment inputs
+      #   run: |
+      #     set -Eeuo pipefail
+
+      #     test -n "$EC2_HOST"
+      #     test -n "$EC2_USER"
+      #     test -n "$APP_HEALTH_URL"
+
+      #     [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      #     test -s ./release/release.tar.gz
+
+      # - name: Extract deployment artifact
+      #   run: |
+      #     set -Eeuo pipefail
+
+      #     mkdir -p ./deploy-root
+
+      #     tar -xzf ./release/release.tar.gz \
+      #       -C ./deploy-root
+
+      #     test -f ./deploy-root/artisan
+      #     test -f ./deploy-root/vendor/autoload.php
+
+      # - name: Configure SSH
+      #   env:
+      #     SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+      #     SSH_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+      #   run: |
+      #     set -Eeuo pipefail
+
+      #     test -n "$SSH_PRIVATE_KEY"
+      #     test -n "$SSH_KNOWN_HOSTS"
+
+      #     install -m 700 -d "$HOME/.ssh"
+
+      #     printf '%s\n' "$SSH_PRIVATE_KEY" \
+      #       > "$HOME/.ssh/deploy_key"
+
+      #     chmod 600 "$HOME/.ssh/deploy_key"
+
+      #     printf '%s\n' "$SSH_KNOWN_HOSTS" \
+      #       > "$HOME/.ssh/known_hosts"
+
+      #     chmod 600 "$HOME/.ssh/known_hosts"
+
+      #     ssh-keygen -y -f "$HOME/.ssh/deploy_key" \
+      #       > /dev/null
+
+      #     ssh \
+      #       -i "$HOME/.ssh/deploy_key" \
+      #       -o IdentitiesOnly=yes \
+      #       -o StrictHostKeyChecking=yes \
+      #       "$EC2_USER@$EC2_HOST" \
+      #       "true"
+
+      # - name: Upload Laravel files to EC2
+      #   run: |
+      #     set -Eeuo pipefail
+
+      #     rsync -az --delete \
+      #       --exclude='/.env' \
+      #       --exclude='/storage/' \
+      #       --exclude='/public/storage' \
+      #       -e "ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
+      #       ./deploy-root/ \
+      #       "$EC2_USER@$EC2_HOST:$APP_DIR/"
+
+      # - name: Run production migrations and cache commands
+      #   run: |
+      #     set -Eeuo pipefail
+
+      #     ssh \
+      #       -i "$HOME/.ssh/deploy_key" \
+      #       -o IdentitiesOnly=yes \
+      #       -o StrictHostKeyChecking=yes \
+      #       "$EC2_USER@$EC2_HOST" \
+      #       "bash -s -- '$APP_DIR' '$AWS_REGION' '$MIGRATION_SECRET_ID'" \
+      #       <<'REMOTE'
+      #     set -Eeuo pipefail
+
+      #     APP_DIR="$1"
+      #     AWS_REGION="$2"
+      #     MIGRATION_SECRET_ID="$3"
+
+      #     cd "$APP_DIR"
+
+      #     test -f .env
+      #     test -f artisan
+      #     test -f vendor/autoload.php
+
+      #     # Set application ownership and runtime permissions.
+      #     sudo chown -R "$(id -un):www-data" "$APP_DIR"
+
+      #     sudo find "$APP_DIR" \
+      #       -type d -exec chmod 2755 {} +
+
+      #     sudo find "$APP_DIR" \
+      #       -type f -exec chmod 0644 {} +
+
+      #     sudo chmod 0640 "$APP_DIR/.env"
+
+      #     sudo chmod -R g+rwX \
+      #       "$APP_DIR/storage" \
+      #       "$APP_DIR/bootstrap/cache"
+
+      #     sudo find \
+      #       "$APP_DIR/storage" \
+      #       "$APP_DIR/bootstrap/cache" \
+      #       -type d -exec chmod g+s {} +
+
+      #     # Remove any stale Laravel configuration cache.
+      #     php artisan config:clear
+
+      #     # Retrieve the separate migration account from Secrets Manager.
+      #     SECRET_JSON="$(
+      #       aws --region "$AWS_REGION" secretsmanager get-secret-value \
+      #         --secret-id "$MIGRATION_SECRET_ID" \
+      #         --query SecretString \
+      #         --output text
+      #     )"
+
+      #     MIGRATION_DB_USERNAME="$(
+      #       printf '%s' "$SECRET_JSON" | jq -er '.username'
+      #     )"
+
+      #     MIGRATION_DB_PASSWORD="$(
+      #       printf '%s' "$SECRET_JSON" | jq -er '.password'
+      #     )"
+
+      #     unset SECRET_JSON
+
+      #     # Apply pending migrations to the real private MySQL database.
+      #     DB_USERNAME="$MIGRATION_DB_USERNAME" \
+      #     DB_PASSWORD="$MIGRATION_DB_PASSWORD" \
+      #       php artisan migrate --force
+
+      #     unset MIGRATION_DB_USERNAME MIGRATION_DB_PASSWORD
+
+      #     # Rebuild production caches using the normal .env settings.
+      #     php artisan config:cache
+      #     php artisan view:cache
+
+      #     echo "Laravel deployment commands completed."
+      #     REMOTE
+
+      # - name: Verify deployed application
+      #   run: |
+      #     set -Eeuo pipefail
+
+      #     curl -fsS \
+      #       --max-time 30 \
+      #       "$APP_HEALTH_URL" \
+      #       > /dev/null
+
+      #     echo "Deployment and health check succeeded."

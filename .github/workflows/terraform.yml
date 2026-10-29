@@ -115,4 +115,5 @@ jobs:
 
       - name: View All Terraform Outputs
         run: terraform output
+        working-directory: ./terraform
 

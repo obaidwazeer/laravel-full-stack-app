@@ -52,10 +52,11 @@ jobs:
 
     steps:
       - name: Download terraform outputs
-        uses: actions/download-artifact@v4
-        with:
-          name: output-ips
-          path: ./output_data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run download --name output-ips --dir ./output_data
+
 
       - name: Load ips into GitHub environment variables
         run: cat ./output_data/ips.txt >> $GITHUB_ENV

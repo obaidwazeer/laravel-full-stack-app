@@ -99,10 +99,10 @@ jobs:
       - name: terraform output
         id: ips
         run: |
-          mkdir -p output_data \
-          echo WEB_PUBLIC_IP="$(terraform output -raw web_public_ip )" >> output_data/ips.txt \
-          echo WEB_PRIVATE_IP="$(terafrom output -raw web_private_ip)" >> output_data/ips.txt \
-          echo DATABASE_PRIVATE_IP="$(terraform output -raw database_private_ip)" >> output_data/ips.txt \
+          mkdir -p output_data 
+          echo WEB_PUBLIC_IP="$(terraform output -raw web_public_ip )" >> output_data/ips.txt
+          echo WEB_PRIVATE_IP="$(terraform output -raw web_private_ip)" >> output_data/ips.txt
+          echo DATABASE_PRIVATE_IP="$(terraform output -raw database_private_ip)" >> output_data/ips.txt
           echo NET_GATEWAY_ID="$(terraform output -raw nat_gateway_id)" >> output_data/ips.txt
 
       - name: ips artifact

@@ -1,4 +1,106 @@
 # --------------------------------------------------
+# 1. Read the existing Secrets Manager secret metadata
+# --------------------------------------------------
+
+data "aws_secretsmanager_secret" "laravel_database" {
+  name = "prod/laravel/database-bootstrap"
+}
+
+
+# --------------------------------------------------
+# 2. Web EC2 IAM role
+# --------------------------------------------------
+
+resource "aws_iam_role" "web_role" {
+  name = "laravel-web-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect = "Allow"
+
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "web_secret_access" {
+  name = "laravel-web-database-secret"
+  role = aws_iam_role.web_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect = "Allow"
+
+      Action = [
+        "secretsmanager:GetSecretValue"
+      ]
+
+      Resource = data.aws_secretsmanager_secret.laravel_database.arn
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "web" {
+  name = "laravel-web-instance-profile"
+  role = aws_iam_role.web_role.name
+}
+
+
+# --------------------------------------------------
+# 3. Database EC2 IAM role
+# --------------------------------------------------
+
+resource "aws_iam_role" "db_role" {
+  name = "laravel-db-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect = "Allow"
+
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "db_secret_access" {
+  name = "laravel-db-database-secret"
+  role = aws_iam_role.db_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+
+    Statement = [{
+      Effect = "Allow"
+
+      Action = [
+        "secretsmanager:GetSecretValue"
+      ]
+
+      Resource = data.aws_secretsmanager_secret.laravel_database.arn
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "db" {
+  name = "laravel-db-instance-profile"
+  role = aws_iam_role.db_role.name
+}
+
+# --------------------------------------------------
 #  AWS key pair for EC2 instances
 # --------------------------------------------------
 
@@ -145,8 +247,25 @@ resource "aws_instance" "web" {
   instance_type               = var.web_instance_type
   subnet_id                   = module.network.public_subnet_id
   vpc_security_group_ids      = [aws_security_group.web_sg.id]
-  key_name = aws_key_pair.deployer.key_name
+  key_name                    = aws_key_pair.deployer.key_name
   associate_public_ip_address = true
+
+  # Attach IAM role to the web EC2.
+  iam_instance_profile = aws_iam_instance_profile.web.name
+
+  # Install and configure web server software on first boot.
+  user_data = file("${path.module}/bootstrap/web-user-data.sh")
+
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  # Wait until network and IAM permissions exist.
+  depends_on = [
+    module.network,
+    aws_iam_role_policy.web_secret_access
+  ]
 
   tags = {
     Name = "laravel-web-server"
@@ -163,25 +282,32 @@ resource "aws_instance" "db" {
   instance_type          = var.db_instance_type
   subnet_id              = module.network.private_subnet_id
   vpc_security_group_ids = [aws_security_group.db_sg.id]
-  key_name = aws_key_pair.deployer.key_name
+  key_name               = aws_key_pair.deployer.key_name
 
-  # Install MySQL and permit remote connections.
-  # Network access is still restricted by db_sg.
-  user_data = <<-EOF
-    #!/bin/bash
-    set -e
+  # Attach IAM role to the database EC2.
+  iam_instance_profile = aws_iam_instance_profile.db.name
 
-    export DEBIAN_FRONTEND=noninteractive
+  # Bootstrap MySQL and create application database/users.
+  user_data = templatefile(
+    "${path.module}/bootstrap/db-user-data.sh.tftpl",
+    {
+      aws_region           = "eu-north-1"
+      database_secret_name = data.aws_secretsmanager_secret.laravel_database.name
+      mysql_user_host      = "10.0.1.%"
+    }
+  )
 
-    apt-get update
-    apt-get install -y mysql-server
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
 
-    sed -i 's/^bind-address[[:space:]]*=.*/bind-address = 0.0.0.0/' \
-      /etc/mysql/mysql.conf.d/mysqld.cnf
-
-    systemctl enable mysql
-    systemctl restart mysql
-  EOF
+  # Ensure the NAT route and database secret permissions exist
+  # before launching the private database instance.
+  depends_on = [
+    module.network,
+    aws_iam_role_policy.db_secret_access
+  ]
 
   tags = {
     Name = "laravel-mysql-server"

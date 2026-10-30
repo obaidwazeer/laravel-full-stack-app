@@ -1,0 +1,179 @@
+#!/bin/bash
+
+set -Eeuo pipefail
+
+exec > /var/log/laravel-db-bootstrap.log 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+
+AWS_REGION="${aws_region}"
+DATABASE_SECRET_NAME="${database_secret_name}"
+MYSQL_USER_HOST="${mysql_user_host}"
+
+# --------------------------------------------------
+# 1. Install MySQL and AWS utilities
+# --------------------------------------------------
+
+apt-get update
+
+apt-get install -y \
+    mysql-server \
+    awscli \
+    jq
+
+# --------------------------------------------------
+# 2. Configure MySQL remote connections
+# --------------------------------------------------
+
+MYSQL_CONFIG="/etc/mysql/mysql.conf.d/mysqld.cnf"
+
+if grep -Eq '^[[:space:]#]*bind-address[[:space:]]*=' "$MYSQL_CONFIG"; then
+
+    sed -i -E \
+      's/^[[:space:]#]*bind-address[[:space:]]*=.*/bind-address = 0.0.0.0/' \
+      "$MYSQL_CONFIG"
+
+else
+
+    echo "bind-address = 0.0.0.0" >> "$MYSQL_CONFIG"
+
+fi
+
+systemctl enable mysql
+systemctl restart mysql
+
+# --------------------------------------------------
+# 3. Wait for MySQL to start
+# --------------------------------------------------
+
+MYSQL_READY=0
+
+for attempt in $(seq 1 30); do
+
+    if mysqladmin ping --silent; then
+        MYSQL_READY=1
+        break
+    fi
+
+    sleep 5
+
+done
+
+if [[ "$MYSQL_READY" -ne 1 ]]; then
+    echo "ERROR: MySQL did not start successfully."
+    exit 1
+fi
+
+# --------------------------------------------------
+# 4. Retrieve database credentials from Secrets Manager
+# --------------------------------------------------
+
+SECRET_JSON=""
+
+for attempt in $(seq 1 30); do
+
+    if SECRET_JSON="$(aws secretsmanager get-secret-value \
+        --region "$AWS_REGION" \
+        --secret-id "$DATABASE_SECRET_NAME" \
+        --query SecretString \
+        --output text 2>/dev/null)"; then
+
+        break
+
+    fi
+
+    sleep 10
+
+done
+
+if [[ -z "$SECRET_JSON" ]]; then
+    echo "ERROR: Unable to retrieve database secret."
+    exit 1
+fi
+
+# --------------------------------------------------
+# 5. Extract database credentials
+# --------------------------------------------------
+
+DB_NAME="$(printf '%s' "$SECRET_JSON" | jq -er '.database')"
+
+RUNTIME_USERNAME="$(
+    printf '%s' "$SECRET_JSON" | jq -er '.runtime_username'
+)"
+
+RUNTIME_PASSWORD="$(
+    printf '%s' "$SECRET_JSON" | jq -er '.runtime_password'
+)"
+
+MIGRATION_USERNAME="$(
+    printf '%s' "$SECRET_JSON" | jq -er '.migration_username'
+)"
+
+MIGRATION_PASSWORD="$(
+    printf '%s' "$SECRET_JSON" | jq -er '.migration_password'
+)"
+
+unset SECRET_JSON
+
+# --------------------------------------------------
+# 6. Validate database values
+# --------------------------------------------------
+
+[[ "$DB_NAME" =~ ^[A-Za-z0-9_]+$ ]]
+[[ "$RUNTIME_USERNAME" =~ ^[A-Za-z0-9_]+$ ]]
+[[ "$MIGRATION_USERNAME" =~ ^[A-Za-z0-9_]+$ ]]
+
+[[ "$RUNTIME_PASSWORD" =~ ^[a-f0-9]{64}$ ]]
+[[ "$MIGRATION_PASSWORD" =~ ^[a-f0-9]{64}$ ]]
+
+# --------------------------------------------------
+# 7. Create database and users
+# --------------------------------------------------
+
+SQL_FILE="$(mktemp)"
+chmod 600 "$SQL_FILE"
+
+cat > "$SQL_FILE" <<SQL
+
+CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS '$RUNTIME_USERNAME'@'$MYSQL_USER_HOST'
+IDENTIFIED BY '$RUNTIME_PASSWORD';
+
+ALTER USER '$RUNTIME_USERNAME'@'$MYSQL_USER_HOST'
+IDENTIFIED BY '$RUNTIME_PASSWORD';
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+ON \`$DB_NAME\`.*
+TO '$RUNTIME_USERNAME'@'$MYSQL_USER_HOST';
+
+
+CREATE USER IF NOT EXISTS '$MIGRATION_USERNAME'@'$MYSQL_USER_HOST'
+IDENTIFIED BY '$MIGRATION_PASSWORD';
+
+ALTER USER '$MIGRATION_USERNAME'@'$MYSQL_USER_HOST'
+IDENTIFIED BY '$MIGRATION_PASSWORD';
+
+GRANT ALL PRIVILEGES
+ON \`$DB_NAME\`.*
+TO '$MIGRATION_USERNAME'@'$MYSQL_USER_HOST';
+
+FLUSH PRIVILEGES;
+
+SQL
+
+mysql --protocol=socket -u root < "$SQL_FILE"
+
+rm -f "$SQL_FILE"
+
+unset RUNTIME_PASSWORD MIGRATION_PASSWORD
+
+# --------------------------------------------------
+# 8. Confirm MySQL is running
+# --------------------------------------------------
+
+systemctl is-active mysql
+
+echo "MySQL installation and database initialization completed."

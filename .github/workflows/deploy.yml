@@ -8,11 +8,6 @@ on:
       - completed
     branches:
       - master
-
-  pull_request:
-    branches:
-      - master
-
   workflow_dispatch:
 
 permissions:
@@ -35,23 +30,28 @@ jobs:
 
     runs-on: ubuntu-24.04
 
+    timeout-minutes: 35
+
     environment:
       name: production
 
     permissions:
-      actions: read
       contents: read
+      actions: read
 
     env:
-      EC2_HOST: ${{ vars.EC2_HOST }}
-      EC2_USER: "ubuntu"
+      EC2_USER: ubuntu
       APP_DIR: /var/www/laravel
       AWS_REGION: eu-north-1
-      MIGRATION_SECRET_ID: prod/laravel/migration-db
+      DATABASE_SECRET_NAME: prod/laravel/database-bootstrap
       COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
-      APP_HEALTH_URL: ${{ vars.APP_HEALTH_URL }}
 
     steps:
+
+      # --------------------------------------------------
+      # 1. Download Terraform outputs
+      # --------------------------------------------------
+
       - name: Download Terraform outputs
         uses: actions/download-artifact@v4
         with:
@@ -61,15 +61,63 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
 
-      - name: Display downloaded IP information
+
+      # --------------------------------------------------
+      # 2. Read Terraform output values
+      # --------------------------------------------------
+
+      - name: Load Terraform outputs
+        shell: bash
         run: |
-          cat ./output_data/ips.txt
+          set -Eeuo pipefail
+
+          OUTPUT_FILE="./output_data/ips.txt"
+
+          test -s "$OUTPUT_FILE"
+
+          get_value() {
+            awk -F= -v key="$1" \
+              '$1 == key {
+                sub(/^[^=]*=/, "")
+                print
+                exit
+              }' "$OUTPUT_FILE"
+          }
+
+          WEB_PUBLIC_IP="$(get_value WEB_PUBLIC_IP)"
+
+          DATABASE_PRIVATE_IP="$(get_value DATABASE_PRIVATE_IP)"
+
+          test -n "$WEB_PUBLIC_IP"
+          test -n "$DATABASE_PRIVATE_IP"
+
+          python3 - "$WEB_PUBLIC_IP" "$DATABASE_PRIVATE_IP" <<'PY'
+          import ipaddress
+          import sys
+
+          web_ip = ipaddress.ip_address(sys.argv[1])
+          db_ip = ipaddress.ip_address(sys.argv[2])
+
+          if web_ip.version != 4 or not web_ip.is_global:
+              raise SystemExit("Invalid web EC2 public IP")
+
+          if db_ip.version != 4 or not db_ip.is_private:
+              raise SystemExit("Invalid database EC2 private IP")
+          PY
+
+          {
+            printf 'EC2_HOST=%s\n' "$WEB_PUBLIC_IP"
+            printf 'DATABASE_PRIVATE_IP=%s\n' "$DATABASE_PRIVATE_IP"
+          } >> "$GITHUB_ENV"
+
+          echo "Terraform outputs loaded successfully."
 
 
-      - name: Load ips into GitHub environment variables
-        run: cat ./output_data/ips.txt >> $GITHUB_ENV
+      # --------------------------------------------------
+      # 3. Download Laravel application artifact
+      # --------------------------------------------------
 
-      - name: Download artifact from successful CI run
+      - name: Download Laravel release
         uses: actions/download-artifact@v4
         with:
           name: laravel-release
@@ -78,162 +126,433 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
 
-      - name: show all env variables
-        run: env | sort
 
-      # - name: Validate deployment inputs
-      #   run: |
-      #     set -Eeuo pipefail
+      # --------------------------------------------------
+      # 4. Validate deployment inputs
+      # --------------------------------------------------
 
-      #     test -n "$EC2_HOST"
-      #     test -n "$EC2_USER"
-      #     test -n "$APP_HEALTH_URL"
+      - name: Validate deployment inputs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
 
-      #     [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -n "$EC2_HOST"
+          test -n "$DATABASE_PRIVATE_IP"
+          test -n "$COMMIT_SHA"
 
-      #     test -s ./release/release.tar.gz
+          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
 
-      # - name: Extract deployment artifact
-      #   run: |
-      #     set -Eeuo pipefail
+          test -s ./release/release.tar.gz
 
-      #     mkdir -p ./deploy-root
+          tar -tzf ./release/release.tar.gz \
+            | grep -E '(^|/)artisan$' > /dev/null
 
-      #     tar -xzf ./release/release.tar.gz \
-      #       -C ./deploy-root
+          tar -tzf ./release/release.tar.gz \
+            | grep -E '(^|/)vendor/autoload\.php$' > /dev/null
 
-      #     test -f ./deploy-root/artisan
-      #     test -f ./deploy-root/vendor/autoload.php
+          tar -tzf ./release/release.tar.gz \
+            | grep -E '(^|/)\.env\.example$' > /dev/null
 
-      # - name: Configure SSH
-      #   env:
-      #     SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-      #     SSH_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
-      #   run: |
-      #     set -Eeuo pipefail
+          echo "Deployment inputs validated."
 
-      #     test -n "$SSH_PRIVATE_KEY"
-      #     test -n "$SSH_KNOWN_HOSTS"
 
-      #     install -m 700 -d "$HOME/.ssh"
+      # --------------------------------------------------
+      # 5. Extract Laravel application
+      # --------------------------------------------------
 
-      #     printf '%s\n' "$SSH_PRIVATE_KEY" \
-      #       > "$HOME/.ssh/deploy_key"
+      - name: Extract Laravel release
+        run: |
+          set -Eeuo pipefail
 
-      #     chmod 600 "$HOME/.ssh/deploy_key"
+          mkdir -p ./deploy-root
 
-      #     printf '%s\n' "$SSH_KNOWN_HOSTS" \
-      #       > "$HOME/.ssh/known_hosts"
+          tar -xzf ./release/release.tar.gz \
+            -C ./deploy-root
 
-      #     chmod 600 "$HOME/.ssh/known_hosts"
+          test -f ./deploy-root/artisan
+          test -f ./deploy-root/vendor/autoload.php
+          test -f ./deploy-root/.env.example
 
-      #     ssh-keygen -y -f "$HOME/.ssh/deploy_key" \
-      #       > /dev/null
 
-      #     ssh \
-      #       -i "$HOME/.ssh/deploy_key" \
-      #       -o IdentitiesOnly=yes \
-      #       -o StrictHostKeyChecking=yes \
-      #       "$EC2_USER@$EC2_HOST" \
-      #       "true"
+      # --------------------------------------------------
+      # 6. Install rsync on GitHub runner
+      # --------------------------------------------------
 
-      # - name: Upload Laravel files to EC2
-      #   run: |
-      #     set -Eeuo pipefail
+      - name: Install rsync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rsync
 
-      #     rsync -az --delete \
-      #       --exclude='/.env' \
-      #       --exclude='/storage/' \
-      #       --exclude='/public/storage' \
-      #       -e "ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
-      #       ./deploy-root/ \
-      #       "$EC2_USER@$EC2_HOST:$APP_DIR/"
 
-      # - name: Run production migrations and cache commands
-      #   run: |
-      #     set -Eeuo pipefail
+      # --------------------------------------------------
+      # 7. Configure SSH
+      # --------------------------------------------------
 
-      #     ssh \
-      #       -i "$HOME/.ssh/deploy_key" \
-      #       -o IdentitiesOnly=yes \
-      #       -o StrictHostKeyChecking=yes \
-      #       "$EC2_USER@$EC2_HOST" \
-      #       "bash -s -- '$APP_DIR' '$AWS_REGION' '$MIGRATION_SECRET_ID'" \
-      #       <<'REMOTE'
-      #     set -Eeuo pipefail
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -Eeuo pipefail
 
-      #     APP_DIR="$1"
-      #     AWS_REGION="$2"
-      #     MIGRATION_SECRET_ID="$3"
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
 
-      #     cd "$APP_DIR"
+          install -m 700 -d "$HOME/.ssh"
 
-      #     test -f .env
-      #     test -f artisan
-      #     test -f vendor/autoload.php
+          printf '%s\n' "$SSH_PRIVATE_KEY" \
+            > "$HOME/.ssh/deploy_key"
 
-      #     # Set application ownership and runtime permissions.
-      #     sudo chown -R "$(id -un):www-data" "$APP_DIR"
+          chmod 600 "$HOME/.ssh/deploy_key"
 
-      #     sudo find "$APP_DIR" \
-      #       -type d -exec chmod 2755 {} +
+          printf '%s\n' "$SSH_KNOWN_HOSTS" \
+            > "$HOME/.ssh/known_hosts"
 
-      #     sudo find "$APP_DIR" \
-      #       -type f -exec chmod 0644 {} +
+          chmod 600 "$HOME/.ssh/known_hosts"
 
-      #     sudo chmod 0640 "$APP_DIR/.env"
+          ssh-keygen -y \
+            -f "$HOME/.ssh/deploy_key" \
+            > /dev/null
 
-      #     sudo chmod -R g+rwX \
-      #       "$APP_DIR/storage" \
-      #       "$APP_DIR/bootstrap/cache"
 
-      #     sudo find \
-      #       "$APP_DIR/storage" \
-      #       "$APP_DIR/bootstrap/cache" \
-      #       -type d -exec chmod g+s {} +
+      # --------------------------------------------------
+      # 8. Wait for EC2 SSH and cloud-init
+      # --------------------------------------------------
 
-      #     # Remove any stale Laravel configuration cache.
-      #     php artisan config:clear
+      - name: Wait for EC2 bootstrap
+        timeout-minutes: 25
+        run: |
+          set -Eeuo pipefail
 
-      #     # Retrieve the separate migration account from Secrets Manager.
-      #     SECRET_JSON="$(
-      #       aws --region "$AWS_REGION" secretsmanager get-secret-value \
-      #         --secret-id "$MIGRATION_SECRET_ID" \
-      #         --query SecretString \
-      #         --output text
-      #     )"
+          CONNECTED=0
 
-      #     MIGRATION_DB_USERNAME="$(
-      #       printf '%s' "$SECRET_JSON" | jq -er '.username'
-      #     )"
+          for attempt in $(seq 1 60); do
 
-      #     MIGRATION_DB_PASSWORD="$(
-      #       printf '%s' "$SECRET_JSON" | jq -er '.password'
-      #     )"
+            if ssh \
+              -i "$HOME/.ssh/deploy_key" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=5 \
+              "$EC2_USER@$EC2_HOST" \
+              "true" 2>/dev/null; then
 
-      #     unset SECRET_JSON
+              CONNECTED=1
+              break
 
-      #     # Apply pending migrations to the real private MySQL database.
-      #     DB_USERNAME="$MIGRATION_DB_USERNAME" \
-      #     DB_PASSWORD="$MIGRATION_DB_PASSWORD" \
-      #       php artisan migrate --force
+            fi
 
-      #     unset MIGRATION_DB_USERNAME MIGRATION_DB_PASSWORD
+            echo "EC2 is not ready yet. Attempt: $attempt"
 
-      #     # Rebuild production caches using the normal .env settings.
-      #     php artisan config:cache
-      #     php artisan view:cache
+            sleep 10
 
-      #     echo "Laravel deployment commands completed."
-      #     REMOTE
+          done
 
-      # - name: Verify deployed application
-      #   run: |
-      #     set -Eeuo pipefail
+          if [[ "$CONNECTED" -ne 1 ]]; then
+            echo "Unable to connect to EC2 through SSH."
+            exit 1
+          fi
 
-      #     curl -fsS \
-      #       --max-time 30 \
-      #       "$APP_HEALTH_URL" \
-      #       > /dev/null
+          ssh \
+            -i "$HOME/.ssh/deploy_key" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$EC2_USER@$EC2_HOST" \
+            "sudo cloud-init status --wait"
 
-      #     echo "Deployment and health check succeeded."
+
+      # --------------------------------------------------
+      # 9. Validate installed server software
+      # --------------------------------------------------
+
+      - name: Check web EC2 prerequisites
+        run: |
+          set -Eeuo pipefail
+
+          ssh \
+            -i "$HOME/.ssh/deploy_key" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$EC2_USER@$EC2_HOST" \
+            "set -eu
+
+             command -v nginx
+             command -v php
+             command -v rsync
+             command -v aws
+             command -v jq
+
+             php -m | grep -qi pdo_mysql
+
+             systemctl is-active nginx
+             systemctl is-active php8.3-fpm
+
+             test -d '$APP_DIR'
+             test -w '$APP_DIR'
+
+             test -d '$APP_DIR/storage'
+             test -d '$APP_DIR/bootstrap/cache'
+
+             sudo -n true"
+
+          echo "Web EC2 bootstrap verification successful."
+
+
+      # --------------------------------------------------
+      # 10. Upload Laravel project to EC2
+      # --------------------------------------------------
+
+      - name: Upload Laravel files to EC2
+        run: |
+          set -Eeuo pipefail
+
+          rsync -az --delete --delay-updates \
+            --exclude='/.env' \
+            --exclude='/storage/' \
+            --exclude='/public/storage' \
+            -e "ssh -i $HOME/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes" \
+            ./deploy-root/ \
+            "$EC2_USER@$EC2_HOST:$APP_DIR/"
+
+
+      # --------------------------------------------------
+      # 11. Configure Laravel and database
+      # --------------------------------------------------
+
+      - name: Configure Laravel and run migrations
+        timeout-minutes: 15
+        run: |
+          set -Eeuo pipefail
+
+          ssh \
+            -i "$HOME/.ssh/deploy_key" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$EC2_USER@$EC2_HOST" \
+            "bash -s -- '$APP_DIR' '$AWS_REGION' '$DATABASE_PRIVATE_IP' '$DATABASE_SECRET_NAME' '$EC2_HOST'" \
+            <<'REMOTE'
+
+          set -Eeuo pipefail
+
+          APP_DIR="$1"
+          AWS_REGION="$2"
+          DATABASE_PRIVATE_IP="$3"
+          DATABASE_SECRET_NAME="$4"
+          WEB_PUBLIC_IP="$5"
+
+          cd "$APP_DIR"
+
+          test -f artisan
+          test -f vendor/autoload.php
+          test -f .env.example
+
+          # --------------------------------------------------
+          # 11.1 Retrieve database credentials
+          # --------------------------------------------------
+
+          SECRET_JSON="$(
+            aws secretsmanager get-secret-value \
+              --region "$AWS_REGION" \
+              --secret-id "$DATABASE_SECRET_NAME" \
+              --query SecretString \
+              --output text
+          )"
+
+          DB_NAME="$(
+            printf '%s' "$SECRET_JSON" | jq -er '.database'
+          )"
+
+          RUNTIME_USERNAME="$(
+            printf '%s' "$SECRET_JSON" | jq -er '.runtime_username'
+          )"
+
+          RUNTIME_PASSWORD="$(
+            printf '%s' "$SECRET_JSON" | jq -er '.runtime_password'
+          )"
+
+          MIGRATION_USERNAME="$(
+            printf '%s' "$SECRET_JSON" | jq -er '.migration_username'
+          )"
+
+          MIGRATION_PASSWORD="$(
+            printf '%s' "$SECRET_JSON" | jq -er '.migration_password'
+          )"
+
+          unset SECRET_JSON
+
+          # --------------------------------------------------
+          # 11.2 Validate secret values
+          # --------------------------------------------------
+
+          [[ "$DB_NAME" =~ ^[A-Za-z0-9_]+$ ]]
+          [[ "$RUNTIME_USERNAME" =~ ^[A-Za-z0-9_]+$ ]]
+          [[ "$MIGRATION_USERNAME" =~ ^[A-Za-z0-9_]+$ ]]
+
+          [[ "$RUNTIME_PASSWORD" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$MIGRATION_PASSWORD" =~ ^[a-f0-9]{64}$ ]]
+
+          # --------------------------------------------------
+          # 11.3 Create production .env on first deployment
+          # --------------------------------------------------
+
+          if [[ ! -f .env ]]; then
+            cp .env.example .env
+          fi
+
+          # Keep existing APP_KEY, but replace deployment-managed settings.
+          sed -i -E \
+            '/^(APP_ENV|APP_DEBUG|APP_URL|DB_CONNECTION|DB_HOST|DB_PORT|DB_DATABASE|DB_USERNAME|DB_PASSWORD|CACHE_DRIVER|CACHE_STORE|SESSION_DRIVER|QUEUE_CONNECTION)=/d' \
+            .env
+
+          cat >> .env <<EOF
+          APP_ENV=production
+          APP_DEBUG=false
+          APP_URL=http://$WEB_PUBLIC_IP
+
+          DB_CONNECTION=mysql
+          DB_HOST=$DATABASE_PRIVATE_IP
+          DB_PORT=3306
+          DB_DATABASE=$DB_NAME
+          DB_USERNAME=$RUNTIME_USERNAME
+          DB_PASSWORD=$RUNTIME_PASSWORD
+
+          CACHE_DRIVER=file
+          CACHE_STORE=file
+          SESSION_DRIVER=file
+          QUEUE_CONNECTION=sync
+          EOF
+
+          chmod 640 .env
+
+          # Generate APP_KEY only if it is currently empty.
+          APP_KEY_VALUE="$(sed -n 's/^APP_KEY=//p' .env | tail -n 1)"
+
+          if [[ -z "$APP_KEY_VALUE" || "$APP_KEY_VALUE" == "base64:" ]]; then
+            php artisan key:generate --force
+          fi
+
+          # --------------------------------------------------
+          # 11.4 Configure application permissions
+          # --------------------------------------------------
+
+          sudo find "$APP_DIR" \
+            -path "$APP_DIR/storage" -prune -o \
+            -exec chown ubuntu:www-data {} +
+
+          sudo find "$APP_DIR" \
+            -path "$APP_DIR/storage" -prune -o \
+            -type d -exec chmod 2755 {} +
+
+          sudo chown ubuntu:www-data .env
+          sudo chmod 640 .env
+
+          sudo chmod -R g+rwX \
+            storage \
+            bootstrap/cache
+
+          sudo find \
+            storage \
+            bootstrap/cache \
+            -type d -exec chmod g+s {} +
+
+          # Create public storage symlink if missing.
+          if [[ ! -L public/storage ]]; then
+            php artisan storage:link
+          fi
+
+          # --------------------------------------------------
+          # 11.5 Wait until the private database is ready
+          # --------------------------------------------------
+
+          DB_READY=0
+
+          for attempt in $(seq 1 60); do
+
+            if DB_HOST="$DATABASE_PRIVATE_IP" \
+               DB_DATABASE="$DB_NAME" \
+               DB_USERNAME="$MIGRATION_USERNAME" \
+               DB_PASSWORD="$MIGRATION_PASSWORD" \
+               php -r '
+                try {
+                  new PDO(
+                    "mysql:host=" . getenv("DB_HOST") .
+                    ";port=3306;dbname=" . getenv("DB_DATABASE"),
+                    getenv("DB_USERNAME"),
+                    getenv("DB_PASSWORD"),
+                    [PDO::ATTR_TIMEOUT => 3]
+                  );
+                  exit(0);
+                } catch (Throwable $e) {
+                  exit(1);
+                }
+               ' > /dev/null 2>&1; then
+
+              DB_READY=1
+              break
+
+            fi
+
+            echo "Waiting for MySQL initialization. Attempt: $attempt"
+
+            sleep 5
+
+          done
+
+          if [[ "$DB_READY" -ne 1 ]]; then
+            echo "ERROR: Private MySQL database did not become ready."
+            exit 1
+          fi
+
+          # --------------------------------------------------
+          # 11.6 Run production migrations
+          # --------------------------------------------------
+
+          php artisan config:clear
+
+          DB_USERNAME="$MIGRATION_USERNAME" \
+          DB_PASSWORD="$MIGRATION_PASSWORD" \
+            php artisan migrate --force
+
+          unset MIGRATION_USERNAME MIGRATION_PASSWORD
+
+          # --------------------------------------------------
+          # 11.7 Build production caches
+          # --------------------------------------------------
+
+          php artisan config:cache
+          php artisan view:cache
+
+          echo "Laravel application configured successfully."
+          echo "Production migrations completed."
+
+          REMOTE
+
+
+      # --------------------------------------------------
+      # 12. Verify Laravel deployment
+      # --------------------------------------------------
+
+      - name: Verify Laravel deployment
+        run: |
+          set -Eeuo pipefail
+
+          ssh \
+            -i "$HOME/.ssh/deploy_key" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$EC2_USER@$EC2_HOST" \
+            "cd '$APP_DIR' &&
+             test -f artisan &&
+             test -f .env &&
+             php artisan migrate:status --no-ansi"
+
+          echo "Laravel deployment verification completed."
+
+
+      # --------------------------------------------------
+      # 13. Remove temporary SSH private key
+      # --------------------------------------------------
+
+      - name: Remove temporary SSH key
+        if: always()
+        run: |
+          rm -f "$HOME/.ssh/deploy_key"

@@ -1,17 +1,17 @@
 name: CI workflow for Laravel
 
 on:
-  workflow_run:
-    workflows:
-      - "Deploy Infra"
-    types:
-      - completed
-    branches:
-      - master
+  # workflow_run:
+  #   workflows:
+  #     - "Deploy Infra"
+  #   types:
+  #     - completed
+  #   branches:
+  #     - master
 
-  pull_request:
-    branches:
-      - master
+  # pull_request:
+  #   branches:
+  #     - master
 
   workflow_dispatch:
 
